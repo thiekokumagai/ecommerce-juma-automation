@@ -128,21 +128,20 @@ class JumaService {
     const method = (order.paymentMethod || '').toLowerCase();
     if (method.includes('dinheiro') || method.includes('cash')) {
       if (order.changeAmount && Number(order.changeAmount) > 0) {
-        obsParts.push(`[TROCO: Levar R$ ${Number(order.changeAmount).toFixed(2)} de troco para R$ ${Number(order.amountProvided || 0).toFixed(2)}]`);
+        obsParts.push(`Troco para R$ ${Number(order.amountProvided || 0).toFixed(2).replace('.', ',')}`);
+      } else {
+        obsParts.push('Dinheiro');
       }
-    }
-
-    if (this.isCardPayment(order)) {
+    } else if (this.isCardPayment(order)) {
       const isDebit = method.includes('deb') || method.includes('déb');
       const installments = Number(order.installments) || 1;
-      const totalStr = Number(order.totalOrder || order.totalReceived || 0).toFixed(2).replace('.', ',');
 
       if (isDebit) {
-        obsParts.push(`[PAGAMENTO: Cartão de Débito (R$ ${totalStr}) - LEVAR MAQUININHA]`);
+        obsParts.push('Débito');
       } else if (installments > 1) {
-        obsParts.push(`[PAGAMENTO: Cartão de Crédito em ${installments}x (Total R$ ${totalStr}) - LEVAR MAQUININHA]`);
+        obsParts.push(`Crédito ${installments}x`);
       } else {
-        obsParts.push(`[PAGAMENTO: Cartão de Crédito à vista (R$ ${totalStr}) - LEVAR MAQUININHA]`);
+        obsParts.push('Crédito');
       }
     }
 
