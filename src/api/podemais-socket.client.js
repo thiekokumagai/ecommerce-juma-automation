@@ -9,9 +9,8 @@ class PodEMaisSocketClient {
     this.isConnected = false;
   }
 
-  connect(onConfirmedOrder, onOrderStatusChanged) {
+  connect(onConfirmedOrder) {
     this.onConfirmedOrderCallback = onConfirmedOrder;
-    this.onOrderStatusChangedCallback = onOrderStatusChanged;
 
     this.socket = io(this.socketUrl, {
       transports: ['websocket', 'polling'],
@@ -48,10 +47,6 @@ class PodEMaisSocketClient {
 
   _handleOrderEvent(order, eventName) {
     if (!order) return;
-
-    if (typeof this.onOrderStatusChangedCallback === 'function') {
-      this.onOrderStatusChangedCallback(order, eventName);
-    }
 
     // Verificar se o status é CONFIRMED (Separado comercialmente)
     if (order.status === 'CONFIRMED') {
