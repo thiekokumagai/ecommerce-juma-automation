@@ -136,7 +136,7 @@ class JumaService {
       await btnNovo.waitFor({ state: 'visible', timeout: 15000 });
       await btnNovo.click();
     } else {
-      const btnAddParada = page.locator('#botao_adicionar_parada, button:has-text("Entrega")');
+      const btnAddParada = page.locator('#botao_adicionar_parada').first();
       await btnAddParada.waitFor({ state: 'visible', timeout: 15000 });
       await btnAddParada.click();
     }
