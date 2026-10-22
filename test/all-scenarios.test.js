@@ -48,7 +48,10 @@ describe('Suíte de Testes Automatizados - 14 Cenários do ecommerce-juma-automa
     expect(isCard).toBe(true);
 
     const obs = service.formatObservation(order);
-    expect(obs).toContain('LEVAR MAQUININHA');
+    expect(obs).toBe('Crédito');
+
+    const orderParcelado = { ...order, installments: 3 };
+    expect(service.formatObservation(orderParcelado)).toBe('Crédito 3x');
   });
 
   // 3. Pedido em dinheiro na entrega
@@ -68,7 +71,7 @@ describe('Suíte de Testes Automatizados - 14 Cenários do ecommerce-juma-automa
     expect(paymentVal).toBe('50,00');
 
     const obs = service.formatObservation(order);
-    expect(obs).toContain('TROCO: Levar R$ 50.00 de troco para R$ 100.00');
+    expect(obs).toBe('Troco para R$ 100,00');
   });
 
   // 4. Agrupamento de pedidos próximos
