@@ -30,6 +30,11 @@ class JumaService {
     this.browser = await chromium.launch({
       headless: this.headless,
       slowMo: 80,
+      args: [
+        '--start-minimized',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+      ],
     });
 
     const contextOptions = {

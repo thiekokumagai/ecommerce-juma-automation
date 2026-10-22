@@ -2,9 +2,11 @@
   "name": "juma-automation",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "electron .",
+    "start:cli": "node index.js",
+    "build": "electron-builder --win",
     "start:silent": "wscript iniciar_silencioso.vbs",
     "startup:install": "instalar_inicializacao_windows.bat",
     "startup:remove": "remover_inicializacao_windows.bat",
@@ -15,6 +17,29 @@
     "juma:inspect": "node scripts/inspect-juma.js",
     "juma:gestao": "node scripts/inspect-gestao.js"
   },
+  "build": {
+    "appId": "com.podemais.jumaautomation",
+    "productName": "Juma Automação",
+    "artifactName": "juma-automation-setup.exe",
+    "files": [
+      "**/*",
+      ".env",
+      "icon.png",
+      "icon.ico"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Juma Automação"
+    }
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -22,11 +47,13 @@
   "dependencies": {
     "axios": "^1.20.0",
     "dotenv": "^18.0.8",
+    "electron": "^45.0.0",
     "pg": "^8.23.1",
     "playwright": "^1.64.1",
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
+    "electron-builder": "^26.15.3",
     "jest": "^30.5.2"
   }
 }
