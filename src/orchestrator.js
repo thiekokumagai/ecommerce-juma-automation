@@ -92,36 +92,40 @@ class AutomationOrchestrator {
   }
 
   async processBatch(orders) {
-    for (const order of orders) {
-      const orderRef = `#${order.orderNumber || order.id}`;
-      console.log(`\n[Orchestrator] Processando cadastro do pedido ${orderRef}...`);
+    if (!orders || orders.length === 0) return;
 
-      try {
-        // 1. Cadastrar no Juma com Playwright
-        const result = await this.jumaService.registerOrder(order);
+    const orderNumbersStr = orders.map(o => `#${o.orderNumber || o.id}`).join(', ');
+    console.log(`\n[Orchestrator] Despachando lote com ${orders.length} pedido(s) em rota: ${orderNumbersStr}...`);
 
-        // 2. Confirmar cadastro na fila local
+    try {
+      // 1. Cadastrar a rota completa no Juma (todas as paradas com 1 único motoboy)
+      const result = typeof this.jumaService.registerRouteBatch === 'function'
+        ? await this.jumaService.registerRouteBatch(orders)
+        : await this.jumaService.registerOrder(orders[0]);
+
+      // 2. Para cada pedido da rota confirmada, atualizar fila e status na API
+      for (const order of orders) {
+        const orderRef = `#${order.orderNumber || order.id}`;
         await this.queueRepo.markAsRegistered(order.id, result.jumaDeliveryId);
-        console.log(`[Orchestrator] ✅ Pedido ${orderRef} registrado na fila como sucesso (Juma ID: ${result.jumaDeliveryId}).`);
+        console.log(`[Orchestrator] ✅ Pedido ${orderRef} registrado na fila (Rota: ${result.jumaDeliveryId}).`);
 
-        // 3. Atualizar status na Pod & Mais para DISPATCHED (enviado)
         try {
           if (this.apiClient && !result.dryRun) {
             await this.apiClient.updateOrderStatus(order.id, 'DISPATCHED');
             console.log(`[Orchestrator] 🚀 Status do pedido ${orderRef} atualizado para 'DISPATCHED' na Pod & Mais.`);
           } else if (result.dryRun) {
-            console.log(`[Orchestrator] [DRY RUN] Status na API não modificado.`);
+            console.log(`[Orchestrator] [DRY RUN] Status de ${orderRef} mantido.`);
           }
         } catch (apiErr) {
-          console.error(`[Orchestrator] ⚠️ Entrega confirmada no Juma, mas falhou ao atualizar status na Pod & Mais: ${apiErr.message}`);
-          // Registra para retry na API sem duplicar no Juma
+          console.error(`[Orchestrator] ⚠️ Rota criada no Juma, mas falhou ao atualizar status de ${orderRef} na Pod & Mais: ${apiErr.message}`);
         }
-      } catch (err) {
+      }
+    } catch (err) {
+      console.error(`[Orchestrator] ❌ Falha ao processar rota de pedidos (${orderNumbersStr}): ${err.message}`);
+      for (const order of orders) {
         if (err instanceof ReconciliationNeededError) {
-          console.error(`[Orchestrator] 🛑 Pedido ${orderRef} necessita reconciliação manual: ${err.message}`);
           await this.queueRepo.markForReconciliation(order.id, err.message);
         } else {
-          console.error(`[Orchestrator] ❌ Falha ao processar pedido ${orderRef}: ${err.message}`);
           await this.queueRepo.markAsFailed(order.id, err.message);
         }
       }
