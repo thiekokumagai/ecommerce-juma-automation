@@ -41,11 +41,33 @@ class JumaService {
       launchArgs.push('--start-minimized');
     }
 
-    this.browser = await chromium.launch({
-      headless: this.headless,
-      slowMo: 80,
-      args: launchArgs,
-    });
+    // Tentar inicializar com o Chrome ou Edge do próprio Windows (mais leve, não requer download)
+    // Se nenhum estiver disponível, recorre ao Chromium padrão
+    const channelsToTry = ['chrome', 'msedge', undefined];
+    let lastError = null;
+
+    for (const channel of channelsToTry) {
+      try {
+        const launchOptions = {
+          headless: this.headless,
+          slowMo: 80,
+          args: launchArgs,
+        };
+        if (channel) {
+          launchOptions.channel = channel;
+        }
+        this.browser = await chromium.launch(launchOptions);
+        console.log(`[JumaService] Navegador iniciado com sucesso (Canal: ${channel || 'chromium padrão'}).`);
+        break;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[JumaService] Tentativa de iniciar navegador via canal '${channel || 'chromium'}' falhou: ${err.message}`);
+      }
+    }
+
+    if (!this.browser) {
+      throw new Error(`Não foi possível iniciar nenhum navegador (Chrome, Edge ou Chromium): ${lastError?.message}`);
+    }
 
     const contextOptions = {
       viewport: { width: 1366, height: 768 },
