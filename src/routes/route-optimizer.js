@@ -1,6 +1,8 @@
 const GoogleRoutesClient = require('./google-routes.client');
 const config = require('../config');
 
+const { formatAddressForSearch } = require('../utils/address-formatter');
+
 class RouteOptimizer {
   constructor(routesClient = new GoogleRoutesClient(), options = {}) {
     this.routesClient = routesClient;
@@ -9,15 +11,7 @@ class RouteOptimizer {
   }
 
   formatOrderAddress(order) {
-    const parts = [
-      order.street,
-      order.number,
-      order.neighborhood,
-      order.city,
-      order.state,
-      order.cep ? `CEP ${order.cep}` : null,
-    ].filter(Boolean);
-    return parts.join(', ');
+    return formatAddressForSearch(order);
   }
 
   isCardOnDelivery(order) {

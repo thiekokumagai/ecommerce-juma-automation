@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const { normalizeAddress, formatAddressForSearch } = require('../utils/address-formatter');
 
 class ReconciliationNeededError extends Error {
   constructor(message, orderId) {
@@ -90,6 +91,13 @@ class JumaService {
 
   formatObservation(order) {
     const obsParts = [];
+
+    // Incluir referência de entrega explícita com número e complemento para garantir visibilidade do entregador
+    const norm = normalizeAddress(order);
+    const compStr = order.complement ? ` (Comp: ${order.complement})` : '';
+    const numStr = norm.number && norm.number !== 'S/N' ? `Nº ${norm.number}` : 'S/N';
+    obsParts.push(`[ENTREGA: ${norm.street}, ${numStr}${compStr} - ${norm.neighborhood || norm.city}]`);
+
     if (order.observation) {
       obsParts.push(order.observation.trim());
     }
@@ -116,13 +124,30 @@ class JumaService {
     return digits;
   }
 
-  async _handleUpdateModalIfPresent(page) {
+  async _handleUpdateModalIfPresent(page, expectedName = '') {
     try {
-      const modalBtn = page.locator('#btn-confirmar-atualizacao, #btn-atualizar-comp, #btn-atualizar-ambos, button:has-text("Sim, atualizar")').locator('visible=true').first();
-      if (await modalBtn.count() > 0 && await modalBtn.isVisible().catch(() => false)) {
-        console.log('[JumaService] Modal "Atualizar dados do cadastro?" detectado! Clicando em "Sim, atualizar"...');
-        await modalBtn.click().catch(() => {});
-        await page.waitForTimeout(600);
+      const modal = page.locator('.modal.in, .modal.show, div[role="dialog"]').locator('visible=true').first();
+      if (await modal.count() > 0 && await modal.isVisible().catch(() => false)) {
+        const modalText = await modal.innerText().catch(() => '');
+        if (modalText.includes('Atualizar dados do cadastro?') || modalText.includes('Deseja atualizar')) {
+          console.log(`[JumaService] Modal de cadastro detectado: "${modalText.replace(/\s+/g, ' ').substring(0, 100)}..."`);
+          
+          // Se o texto contém repetição do nome (ex: "Julio MiJulio Mi"), cancela para não salvar duplicação no Juma
+          const isDuplicated = expectedName && (
+            modalText.includes(expectedName + expectedName) ||
+            modalText.toLowerCase().includes((expectedName + expectedName).toLowerCase())
+          );
+
+          if (isDuplicated) {
+            console.warn(`[JumaService] ⚠️ Detectada duplicação de nome no modal! Clicando em Cancelar para evitar salvar nome corrompido.`);
+            const cancelBtn = modal.locator('button:has-text("Cancelar"), button:has-text("Não"), .btn-default, [data-dismiss="modal"]').first();
+            await cancelBtn.click().catch(() => {});
+          } else {
+            const confirmBtn = modal.locator('#btn-confirmar-atualizacao, #btn-atualizar-comp, #btn-atualizar-ambos, button:has-text("Sim, atualizar")').first();
+            await confirmBtn.click().catch(() => {});
+          }
+          await page.waitForTimeout(600);
+        }
       }
     } catch (e) {}
   }
@@ -150,37 +175,79 @@ class JumaService {
     await phoneInput.click();
     await phoneInput.fill('');
     await phoneInput.pressSequentially(cleanPhone, { delay: 40 });
-    await page.waitForTimeout(600);
+    // Dispara blur para acionar a busca AJAX de passageiro pelo Juma
+    await phoneInput.press('Tab');
+    await page.waitForTimeout(1000);
 
-    // 2. Nome do cliente
+    // 2. Nome do cliente (com prevenção de duplicação)
     const nameInput = page.locator('#Pedido_nome_passageiro');
-    if (order.customerName) {
-      console.log(`[JumaService] Nome: ${order.customerName}`);
-      await nameInput.click();
-      await nameInput.fill('');
-      await nameInput.pressSequentially(order.customerName.trim(), { delay: 30 });
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(400);
+    const expectedName = (order.customerName || '').trim();
+
+    if (expectedName) {
+      const currentVal = (await nameInput.inputValue() || '').trim();
+      console.log(`[JumaService] Nome no Juma: "${currentVal}" | Nome esperado: "${expectedName}"`);
+
+      if (currentVal.toLowerCase() === expectedName.toLowerCase()) {
+        console.log(`[JumaService] Nome no Juma já corresponde ao esperado. Preservando sem alterar.`);
+      } else {
+        console.log(`[JumaService] Definindo nome limpo: "${expectedName}"...`);
+        // Atribui atomicamente via JavaScript para não concatenar nem acionar duplicatas do Juma
+        await nameInput.evaluate((el, val) => {
+          el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, expectedName);
+        await page.waitForTimeout(300);
+      }
     }
 
-    await this._handleUpdateModalIfPresent(page);
+    await this._handleUpdateModalIfPresent(page, expectedName);
 
-    // 3. Endereço completo com seleção de autocomplete
+    // 3. Endereço completo formatado e busca precisa no autocomplete
     const addressInput = page.locator('#Pedido_endereco_parada_completo');
-    const addressParts = [order.street, order.number, order.neighborhood, order.city].filter(Boolean);
-    const searchAddress = addressParts.join(', ');
-    console.log(`[JumaService] Endereço: ${searchAddress}`);
+    const normAddress = normalizeAddress(order);
+    const searchAddress = formatAddressForSearch(order);
+    console.log(`[JumaService] Endereço formatado para busca: "${searchAddress}"`);
 
     await addressInput.click();
     await addressInput.fill('');
-    await addressInput.pressSequentially(searchAddress, { delay: 50 });
+    await addressInput.pressSequentially(searchAddress, { delay: 40 });
 
-    const suggestionLocator = page.locator('ul.typeahead.drop-autocomplete li a, .pac-item').first();
+    const suggestions = page.locator('ul.typeahead.drop-autocomplete li a, .pac-item');
+    let selectedSuggestion = null;
+
     try {
-      await suggestionLocator.waitFor({ state: 'visible', timeout: 5000 });
-      await suggestionLocator.click();
+      await suggestions.first().waitFor({ state: 'visible', timeout: 5000 });
+      const count = await suggestions.count();
+      console.log(`[JumaService] ${count} sugestão(ões) de endereço exibida(s).`);
+
+      const targetNumber = (normAddress.number || '').trim();
+      const numberRegex = targetNumber && targetNumber !== 'S/N' ? new RegExp(`\\b${targetNumber}\\b`) : null;
+
+      // Procura primeiro se alguma sugestão contém o número exato desejado
+      if (numberRegex) {
+        for (let i = 0; i < count; i++) {
+          const itemText = (await suggestions.nth(i).innerText().catch(() => '')).trim();
+          if (numberRegex.test(itemText)) {
+            console.log(`[JumaService] ✅ Sugestão com número exato ${targetNumber} encontrada: "${itemText}"`);
+            selectedSuggestion = suggestions.nth(i);
+            break;
+          }
+        }
+      }
+
+      // Se não houver sugestão com o número exato, seleciona a primeira opção da rua
+      if (!selectedSuggestion && count > 0) {
+        const firstText = (await suggestions.first().innerText().catch(() => '')).trim();
+        console.log(`[JumaService] Nenhuma sugestão com o número ${targetNumber}. Selecionando primeira opção: "${firstText}"`);
+        selectedSuggestion = suggestions.first();
+      }
+
+      if (selectedSuggestion) {
+        await selectedSuggestion.click();
+      }
     } catch (e) {
-      console.warn('[JumaService] Dropdown de sugestão não abriu. Tentando ArrowDown + Enter...');
+      console.warn('[JumaService] Dropdown de sugestão não abriu a tempo. Tentando ArrowDown + Enter...');
       await addressInput.press('ArrowDown');
       await page.waitForTimeout(300);
       await addressInput.press('Enter');
@@ -189,8 +256,14 @@ class JumaService {
 
     // 4. Complemento
     const compInput = page.locator('#Pedido_complemento');
-    if (order.complement && (await compInput.isVisible().catch(() => false))) {
-      await compInput.fill(order.complement.trim());
+    if (await compInput.isVisible().catch(() => false)) {
+      const compParts = [];
+      if (order.complement && order.complement.trim()) {
+        compParts.push(order.complement.trim());
+      }
+      if (compParts.length > 0) {
+        await compInput.fill(compParts.join(' - '));
+      }
     }
 
     // 5. Número do pedido
@@ -220,7 +293,7 @@ class JumaService {
     await btnConfirmar.click();
     await page.waitForTimeout(1500);
 
-    await this._handleUpdateModalIfPresent(page);
+    await this._handleUpdateModalIfPresent(page, expectedName);
     console.log(`[JumaService] Parada #${orderRef} adicionada à solicitação com sucesso.`);
   }
 
