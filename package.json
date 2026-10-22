@@ -1,0 +1,30 @@
+{
+  "name": "juma-automation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:silent": "wscript iniciar_silencioso.vbs",
+    "startup:install": "instalar_inicializacao_windows.bat",
+    "startup:remove": "remover_inicializacao_windows.bat",
+    "queue:reset": "node scripts/reset-order.js",
+    "test": "jest --runInBand",
+    "juma:inspect": "node scripts/inspect-juma.js",
+    "juma:gestao": "node scripts/inspect-gestao.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.20.0",
+    "dotenv": "^18.0.8",
+    "pg": "^8.23.1",
+    "playwright": "^1.64.1",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2"
+  }
+}
