@@ -94,6 +94,17 @@ function showNotification(title, body) {
   }
 }
 
+async function refreshQueueCount() {
+  if (orchestrator && orchestrator.queueRepo) {
+    try {
+      ordersWaitingCount = await orchestrator.queueRepo.getWaitingCount();
+      updateTray();
+    } catch (e) {
+      // Ignora erro eventual ao buscar contagem
+    }
+  }
+}
+
 async function startAutomation() {
   try {
     statusText = 'Conectando à Pod & Mais e Juma...';
@@ -103,19 +114,39 @@ async function startAutomation() {
 
     // Monitorar eventos da fila para feedback no relógio
     if (orchestrator.queueManager) {
-      orchestrator.queueManager.on('order.enqueued', (item) => {
-        ordersWaitingCount++;
+      orchestrator.queueManager.on('order.enqueued', async () => {
+        await refreshQueueCount();
         statusText = 'Monitorando pedidos...';
         updateTray();
       });
 
-      orchestrator.queueManager.on('batch.locked', (orders) => {
+      orchestrator.queueManager.on('order.removed', async () => {
+        await refreshQueueCount();
+        updateTray();
+      });
+
+      orchestrator.queueManager.on('batch.locked', async (orders) => {
+        await refreshQueueCount();
         statusText = `Processando rota de ${orders.length} pedido(s)...`;
+        updateTray();
+      });
+
+      orchestrator.queueManager.on('batch.dispatched', async ({ orders, jumaDeliveryId }) => {
+        await refreshQueueCount();
+        lastRouteText = `${orders.length} pedido(s) (ID: ${jumaDeliveryId || 'Concluído'})`;
+        statusText = 'Monitorando pedidos (Ativo)';
+        updateTray();
+      });
+
+      orchestrator.queueManager.on('batch.failed', async () => {
+        await refreshQueueCount();
+        statusText = 'Monitorando pedidos (Ativo)';
         updateTray();
       });
     }
 
     await orchestrator.start();
+    await refreshQueueCount();
     statusText = 'Monitorando pedidos (Ativo)';
     updateTray();
 

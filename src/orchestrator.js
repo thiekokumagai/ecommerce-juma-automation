@@ -52,12 +52,23 @@ class AutomationOrchestrator {
     await this.queueManager.start();
 
     // 5. Conectar Socket.IO para eventos em tempo real
-    this.socketClient.connect((order) => {
-      console.log(`[Orchestrator] Pedido separado recebido via WebSocket: #${order.orderNumber || order.id}`);
-      this.queueManager.addOrder(order).catch((err) => {
-        console.error('[Orchestrator] Erro ao enfileirar pedido do WebSocket:', err);
-      });
-    });
+    this.socketClient.connect(
+      (order) => {
+        console.log(`[Orchestrator] Pedido separado recebido via WebSocket: #${order.orderNumber || order.id}`);
+        this.queueManager.addOrder(order).catch((err) => {
+          console.error('[Orchestrator] Erro ao enfileirar pedido do WebSocket:', err);
+        });
+      },
+      (order, eventName) => {
+        // Se o pedido não estiver mais como CONFIRMED (foi entregue COMPLETED, CANCELLED ou DISPATCHED),
+        // deve ser removido da fila do relógio
+        if (order && order.status && order.status !== 'CONFIRMED') {
+          this.queueManager.removeOrder(order.id, `Status alterado para ${order.status} (${eventName})`).catch((err) => {
+            console.error('[Orchestrator] Erro ao remover pedido alterado da fila:', err);
+          });
+        }
+      }
+    );
 
     // 6. Iniciar Polling de contingência periódica
     this._startPolling();
@@ -84,10 +95,23 @@ class AutomationOrchestrator {
     if (!config.api.email) return;
 
     const data = await this.apiClient.getConfirmedOrders(1, 50);
-    const orders = data.items || data.orders || (Array.isArray(data) ? data : []);
+    const confirmedOrders = data.items || data.orders || (Array.isArray(data) ? data : []);
+    const confirmedIds = new Set(confirmedOrders.map((o) => String(o.id)));
 
-    for (const order of orders) {
+    // 1. Enfileira os que estão confirmados/separados
+    for (const order of confirmedOrders) {
       await this.queueManager.addOrder(order);
+    }
+
+    // 2. Se houver pedidos na fila do relógio que não estão mais entre os confirmados na API (ex: foram entregues ou cancelados diretamente no painel/app), remove-os da fila
+    const waitingOrders = await this.queueRepo.getWaitingOrders();
+    for (const waiting of waitingOrders) {
+      if (!confirmedIds.has(String(waiting.order_id))) {
+        await this.queueManager.removeOrder(
+          waiting.order_id,
+          'Pedido não consta mais como CONFIRMED na API da loja (Entregue/Cancelado)'
+        );
+      }
     }
   }
 
@@ -120,6 +144,11 @@ class AutomationOrchestrator {
           console.error(`[Orchestrator] ⚠️ Rota criada no Juma, mas falhou ao atualizar status de ${orderRef} na Pod & Mais: ${apiErr.message}`);
         }
       }
+
+      this.queueManager.emit('batch.dispatched', {
+        orders,
+        jumaDeliveryId: result.jumaDeliveryId,
+      });
     } catch (err) {
       console.error(`[Orchestrator] ❌ Falha ao processar rota de pedidos (${orderNumbersStr}): ${err.message}`);
       for (const order of orders) {
@@ -129,6 +158,7 @@ class AutomationOrchestrator {
           await this.queueRepo.markAsFailed(order.id, err.message);
         }
       }
+      this.queueManager.emit('batch.failed', { orders, error: err });
     }
   }
 

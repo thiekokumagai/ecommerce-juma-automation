@@ -62,6 +62,19 @@ class QueueManager extends EventEmitter {
     return item;
   }
 
+  async removeOrder(orderId, reason = 'Entregue ou Cancelado') {
+    const removed = await this.repository.removeOrder(orderId, reason);
+    if (removed) {
+      console.log(`[QueueManager] Pedido ${orderId} removido da fila ativa (${reason}).`);
+      this.emit('order.removed', { orderId, reason });
+    }
+    return removed;
+  }
+
+  async getWaitingCount() {
+    return this.repository.getWaitingCount();
+  }
+
   async evaluateQueue() {
     const waitingOrders = await this.repository.getWaitingOrders();
     if (waitingOrders.length === 0) return;

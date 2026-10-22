@@ -192,6 +192,40 @@ class QueueRepository {
     return item;
   }
 
+  async getWaitingCount() {
+    if (this.pool) {
+      const res = await this.pool.query(
+        "SELECT COUNT(*)::int AS count FROM delivery_queue WHERE status = 'WAITING_WINDOW'"
+      );
+      return res.rows[0]?.count || 0;
+    }
+    return Array.from(this.memoryItems.values()).filter(
+      (item) => item.status === 'WAITING_WINDOW'
+    ).length;
+  }
+
+  async removeOrder(orderId, reason = 'Entregue ou Cancelado') {
+    const now = new Date();
+    if (this.pool) {
+      const res = await this.pool.query(
+        `UPDATE delivery_queue
+         SET status = 'REMOVED', last_error = $1, updated_at = $2
+         WHERE order_id = $3 AND status = 'WAITING_WINDOW'
+         RETURNING *;`,
+        [reason, now, orderId]
+      );
+      return res.rows[0] || null;
+    }
+    const item = this.memoryItems.get(orderId);
+    if (item && item.status === 'WAITING_WINDOW') {
+      item.status = 'REMOVED';
+      item.last_error = reason;
+      item.updated_at = now;
+      return item;
+    }
+    return null;
+  }
+
   async markForReconciliation(orderId, reason) {
     const now = new Date();
     if (this.pool) {

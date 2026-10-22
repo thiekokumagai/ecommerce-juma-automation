@@ -257,4 +257,26 @@ describe('Suíte de Testes Automatizados - 14 Cenários do ecommerce-juma-automa
     expect(finalState.status).toBe('FAILED');
   });
 
+  // 15. Remoção de pedido entregue ou cancelado da fila do relógio
+  test('15. Pedido cancelado ou entregue é removido da fila ativa e decrementa o contador', async () => {
+    const repo = await createTestRepo();
+    const manager = new QueueManager(repo, null);
+
+    await manager.addOrder({ id: 'order-1', orderNumber: 901 });
+    await manager.addOrder({ id: 'order-2', orderNumber: 902 });
+
+    let waitingCount = await manager.getWaitingCount();
+    expect(waitingCount).toBe(2);
+
+    // Simula remoção por ter sido entregue ou cancelado
+    await manager.removeOrder('order-1', 'COMPLETED');
+
+    waitingCount = await manager.getWaitingCount();
+    expect(waitingCount).toBe(1);
+
+    const remaining = await repo.getWaitingOrders();
+    expect(remaining.length).toBe(1);
+    expect(remaining[0].order_id).toBe('order-2');
+  });
+
 });
