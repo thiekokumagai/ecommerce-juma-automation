@@ -133,7 +133,17 @@ class JumaService {
     }
 
     if (this.isCardPayment(order)) {
-      obsParts.push(`[PAGAMENTO EM CARTÃO NA ENTREGA - LEVAR MAQUININHA]`);
+      const isDebit = method.includes('deb') || method.includes('déb');
+      const installments = Number(order.installments) || 1;
+      const totalStr = Number(order.totalOrder || order.totalReceived || 0).toFixed(2).replace('.', ',');
+
+      if (isDebit) {
+        obsParts.push(`[PAGAMENTO: Cartão de Débito (R$ ${totalStr}) - LEVAR MAQUININHA]`);
+      } else if (installments > 1) {
+        obsParts.push(`[PAGAMENTO: Cartão de Crédito em ${installments}x (Total R$ ${totalStr}) - LEVAR MAQUININHA]`);
+      } else {
+        obsParts.push(`[PAGAMENTO: Cartão de Crédito à vista (R$ ${totalStr}) - LEVAR MAQUININHA]`);
+      }
     }
 
     return obsParts.join(' | ');
