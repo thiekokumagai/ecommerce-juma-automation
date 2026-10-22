@@ -27,14 +27,24 @@ class JumaService {
   async launch() {
     if (this.browser) return;
 
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-blink-features=AutomationControlled',
+    ];
+
+    // Se estiver em modo com janela visível, posiciona fora da área de visão para não roubar foco
+    if (!this.headless) {
+      launchArgs.push('--window-position=-32000,-32000');
+      launchArgs.push('--start-minimized');
+    }
+
     this.browser = await chromium.launch({
       headless: this.headless,
       slowMo: 80,
-      args: [
-        '--start-minimized',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-      ],
+      args: launchArgs,
     });
 
     const contextOptions = {

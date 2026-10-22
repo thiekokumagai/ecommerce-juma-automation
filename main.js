@@ -133,7 +133,7 @@ app.whenReady().then(async () => {
   updateTray();
 
   tray.on('double-click', () => {
-    shell.openExternal('https://jumaentregas.com.br/painel');
+    shell.openExternal('https://app.jumaentregas.com/');
   });
 
   await startAutomation();
