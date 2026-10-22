@@ -47,13 +47,13 @@ function updateTray() {
     {
       label: 'Abrir Painel Juma no Navegador',
       click: () => {
-        shell.openExternal('https://jumaentregas.com.br/painel');
+        shell.openExternal('https://app.jumaentregas.com/');
       },
     },
     {
       label: 'Abrir Painel Pod & Mais',
       click: () => {
-        shell.openExternal('https://podemais.com.br/admin');
+        shell.openExternal('https://admin.podemais.store/');
       },
     },
     { type: 'separator' },
