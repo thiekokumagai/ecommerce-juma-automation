@@ -29,8 +29,8 @@ describe('Address Formatter & Juma Observation Tests', () => {
     expect(searchStr).toBe('Rua Doutor Arthur Jorge, 1517, Monte Castelo, Campo Grande - MS');
 
     const observation = jumaService.formatObservation(order65485);
-    expect(observation).toContain('[ENTREGA: Rua Doutor Arthur Jorge, Nº 1517 (Comp: Apto 401) - Monte Castelo]');
-    expect(observation).toContain('Se possível me ligar ou mandar mensagem');
+    expect(observation).not.toContain('[ENTREGA:');
+    expect(observation).toBe('Se possível me ligar ou mandar mensagem pra eu descer e receber mais facil');
   });
 
   test('Deve manter endereço regular sem alterações indevidas', () => {

@@ -15,10 +15,28 @@ class RouteOptimizer {
   }
 
   isCardOnDelivery(order) {
+    if (!order) return false;
     const method = (order.paymentMethod || '').toLowerCase();
-    const isCard = method.includes('cart') || method.includes('crédito') || method.includes('débito') || method.includes('credit') || method.includes('debit');
-    const isPresential = (order.paymentType || '').toLowerCase().includes('presen') || order.paymentStatus === 'PENDING';
-    return isCard && isPresential;
+    const type = (order.paymentType || '').toLowerCase();
+
+    if (method.includes('pix') || method.includes('dinheiro') || method.includes('cash')) {
+      return false;
+    }
+
+    const isCard = (
+      method.includes('cart') ||
+      method.includes('credit') ||
+      method.includes('crédit') ||
+      method.includes('credito') ||
+      method.includes('crédito') ||
+      method.includes('debit') ||
+      method.includes('débit') ||
+      method.includes('debito') ||
+      method.includes('débito') ||
+      method.includes('card')
+    );
+
+    return isCard && type !== 'online';
   }
 
   async groupOrders(orders, options = {}) {

@@ -76,29 +76,52 @@ class JumaService {
     }
   }
 
-  formatPaymentValue(order) {
-    const isPaid = order.paymentStatus === 'PAID' || (order.paymentType || '').toLowerCase() === 'online';
+  isPhysicalPayment(order) {
+    if (!order) return false;
     const method = (order.paymentMethod || '').toLowerCase();
-    const isPix = method.includes('pix');
 
-    if (isPaid || isPix) {
-      return '';
+    // Se for PIX, já está pago online
+    if (method.includes('pix')) {
+      return false;
     }
 
-    const total = order.totalOrder || order.totalReceived || 0;
-    return Number(total).toFixed(2).replace('.', ',');
+    // Crédito, Débito ou Dinheiro
+    return (
+      method.includes('cart') ||
+      method.includes('credit') ||
+      method.includes('crédit') ||
+      method.includes('credito') ||
+      method.includes('crédito') ||
+      method.includes('debit') ||
+      method.includes('débit') ||
+      method.includes('debito') ||
+      method.includes('débito') ||
+      method.includes('card') ||
+      method.includes('dinheiro') ||
+      method.includes('cash')
+    );
+  }
+
+  isCardPayment(order) {
+    return this.isPhysicalPayment(order) && !((order.paymentMethod || '').toLowerCase().includes('dinheiro') || (order.paymentMethod || '').toLowerCase().includes('cash'));
+  }
+
+  formatPaymentValue(order) {
+    // Quando for crédito, débito ou dinheiro: preenche o valor a cobrar
+    if (this.isPhysicalPayment(order)) {
+      const total = order.totalOrder || order.totalReceived || 0;
+      return Number(total).toFixed(2).replace('.', ',');
+    }
+
+    // PIX não cobra nada
+    return '';
   }
 
   formatObservation(order) {
     const obsParts = [];
 
-    // Incluir referência de entrega explícita com número e complemento para garantir visibilidade do entregador
-    const norm = normalizeAddress(order);
-    const compStr = order.complement ? ` (Comp: ${order.complement})` : '';
-    const numStr = norm.number && norm.number !== 'S/N' ? `Nº ${norm.number}` : 'S/N';
-    obsParts.push(`[ENTREGA: ${norm.street}, ${numStr}${compStr} - ${norm.neighborhood || norm.city}]`);
-
-    if (order.observation) {
+    // Observação cadastrada pelo cliente no pedido
+    if (order.observation && order.observation.trim()) {
       obsParts.push(order.observation.trim());
     }
 
@@ -109,7 +132,7 @@ class JumaService {
       }
     }
 
-    if (method.includes('cart') || method.includes('crédito') || method.includes('débito')) {
+    if (this.isCardPayment(order)) {
       obsParts.push(`[PAGAMENTO EM CARTÃO NA ENTREGA - LEVAR MAQUININHA]`);
     }
 
@@ -175,15 +198,19 @@ class JumaService {
     await phoneInput.click();
     await phoneInput.fill('');
     await phoneInput.pressSequentially(cleanPhone, { delay: 40 });
-    // Dispara blur para acionar a busca AJAX de passageiro pelo Juma
-    await phoneInput.press('Tab');
     await page.waitForTimeout(1000);
 
-    // 2. Nome do cliente (com prevenção de duplicação)
-    const nameInput = page.locator('#Pedido_nome_passageiro');
+    // Se o autocomplete de consumidor do Juma abrir (#autocomplete-consumidor-lista), clica nele para confirmar e fechar dropdown
+    const consumidorItem = page.locator('#autocomplete-consumidor-lista li, .ac-item-simple').first();
     const expectedName = (order.customerName || '').trim();
 
-    if (expectedName) {
+    if (await consumidorItem.isVisible().catch(() => false)) {
+      console.log('[JumaService] Consumidor sugerido pelo Juma detectado! Clicando para confirmar...');
+      await consumidorItem.click().catch(() => {});
+      await page.waitForTimeout(500);
+    } else if (expectedName) {
+      // 2. Nome do cliente caso o consumidor não tenha sido preenchido
+      const nameInput = page.locator('#Pedido_nome_passageiro');
       const currentVal = (await nameInput.inputValue() || '').trim();
       console.log(`[JumaService] Nome no Juma: "${currentVal}" | Nome esperado: "${expectedName}"`);
 
@@ -191,7 +218,6 @@ class JumaService {
         console.log(`[JumaService] Nome no Juma já corresponde ao esperado. Preservando sem alterar.`);
       } else {
         console.log(`[JumaService] Definindo nome limpo: "${expectedName}"...`);
-        // Atribui atomicamente via JavaScript para não concatenar nem acionar duplicatas do Juma
         await nameInput.evaluate((el, val) => {
           el.value = val;
           el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -213,11 +239,11 @@ class JumaService {
     await addressInput.fill('');
     await addressInput.pressSequentially(searchAddress, { delay: 40 });
 
-    const suggestions = page.locator('ul.typeahead.drop-autocomplete li a, .pac-item');
+    const suggestions = page.locator('ul.typeahead li a:visible, .pac-item:visible');
     let selectedSuggestion = null;
 
     try {
-      await suggestions.first().waitFor({ state: 'visible', timeout: 5000 });
+      await suggestions.first().waitFor({ state: 'visible', timeout: 8000 });
       const count = await suggestions.count();
       console.log(`[JumaService] ${count} sugestão(ões) de endereço exibida(s).`);
 
@@ -315,19 +341,35 @@ class JumaService {
         await this.fillStop(page, orders[i], i === 0);
       }
 
-      // 2. Se houver pedido com cartão na entrega, adiciona retorno para devolver maquininha
-      const requiresCardMachineReturn = orders.some(o => {
-        const method = (o.paymentMethod || '').toLowerCase();
-        return method.includes('cart') || method.includes('crédito') || method.includes('débito');
-      });
+      // 2. Se houver pedido com crédito, débito ou dinheiro na entrega, aciona botão "Retorno"
+      const requiresReturn = orders.some(o => this.isPhysicalPayment(o));
 
-      if (requiresCardMachineReturn) {
+      if (requiresReturn) {
+        console.log('[JumaService] 💳/💵 Pedido com crédito, débito ou dinheiro detectado. Acionando botão "Retorno" (#botao_adicionar_retorno)...');
         const btnRetorno = page.locator('#botao_adicionar_retorno');
-        if (await btnRetorno.isVisible().catch(() => false)) {
-          console.log('[JumaService] Pedido com cartão na entrega detectado. Adicionando retorno à base (#botao_adicionar_retorno)...');
+        try {
+          await btnRetorno.waitFor({ state: 'visible', timeout: 8000 });
           await btnRetorno.click();
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(1500);
+          console.log('[JumaService] ✅ Botão "Retorno" acionado com sucesso. Parada de volta à base adicionada à rota.');
+        } catch (retornoErr) {
+          console.warn(`[JumaService] Não foi possível acionar botão #botao_adicionar_retorno: ${retornoErr.message}`);
         }
+      }
+
+      // 3. Se for rota (múltiplas entregas ou retorno), sempre acionar o botão "Otimizar" (#btn-otimizar)
+      const btnOtimizar = page.locator('#btn-otimizar, button:has-text("Otimizar")').first();
+      try {
+        if (await btnOtimizar.isVisible().catch(() => false)) {
+          console.log('[JumaService] 🔄 Rota detectada! Acionando botão "Otimizar" (#btn-otimizar) para calcular o melhor trajeto...');
+          await btnOtimizar.click();
+          await page.waitForTimeout(2000);
+          console.log('[JumaService] ✅ Botão "Otimizar" acionado com sucesso.');
+        } else {
+          console.log('[JumaService] Botão "Otimizar" não visível (corrida de parada única ou já otimizada).');
+        }
+      } catch (otimizarErr) {
+        console.warn(`[JumaService] Alerta ao clicar no botão Otimizar: ${otimizarErr.message}`);
       }
 
       if (this.dryRun) {
