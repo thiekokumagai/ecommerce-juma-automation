@@ -9,6 +9,8 @@
     "startup:install": "instalar_inicializacao_windows.bat",
     "startup:remove": "remover_inicializacao_windows.bat",
     "queue:reset": "node scripts/reset-order.js",
+    "queue:list": "node scripts/list-queue.js",
+    "queue:clear": "node scripts/clear-queue.js",
     "test": "jest --runInBand",
     "juma:inspect": "node scripts/inspect-juma.js",
     "juma:gestao": "node scripts/inspect-gestao.js"
