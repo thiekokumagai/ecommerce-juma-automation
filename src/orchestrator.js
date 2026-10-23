@@ -1,3 +1,4 @@
+const EventEmitter = require('events');
 const PodEMaisApiClient = require('./api/podemais-api.client');
 const PodEMaisSocketClient = require('./api/podemais-socket.client');
 const QueueRepository = require('./queue/queue.repository');
@@ -6,8 +7,9 @@ const RouteOptimizer = require('./routes/route-optimizer');
 const { JumaService, ReconciliationNeededError } = require('./juma/juma.service');
 const config = require('./config');
 
-class AutomationOrchestrator {
+class AutomationOrchestrator extends EventEmitter {
   constructor(customComponents = {}) {
+    super();
     this.apiClient = customComponents.apiClient || new PodEMaisApiClient();
     this.socketClient = customComponents.socketClient || new PodEMaisSocketClient();
     this.queueRepo = customComponents.queueRepo || new QueueRepository();
@@ -98,6 +100,8 @@ class AutomationOrchestrator {
     const orderNumbersStr = orders.map(o => `#${o.orderNumber || o.id}`).join(', ');
     console.log(`\n[Orchestrator] Despachando lote com ${orders.length} pedido(s) em rota: ${orderNumbersStr}...`);
 
+    this.emit('batch.dispatching', { orders, orderNumbersStr });
+
     try {
       // 1. Cadastrar a rota completa no Juma (todas as paradas com 1 único motoboy)
       const result = typeof this.jumaService.registerRouteBatch === 'function'
@@ -122,10 +126,16 @@ class AutomationOrchestrator {
         }
       }
 
-      this.queueManager.emit('batch.dispatched', {
+      const dispatchPayload = {
         orders,
+        orderNumbersStr,
         jumaDeliveryId: result.jumaDeliveryId,
-      });
+        dryRun: result.dryRun,
+        result,
+      };
+
+      this.emit('batch.dispatched', dispatchPayload);
+      this.queueManager.emit('batch.dispatched', dispatchPayload);
     } catch (err) {
       console.error(`[Orchestrator] ❌ Falha ao processar rota de pedidos (${orderNumbersStr}): ${err.message}`);
       for (const order of orders) {
@@ -135,7 +145,10 @@ class AutomationOrchestrator {
           await this.queueRepo.markAsFailed(order.id, err.message);
         }
       }
-      this.queueManager.emit('batch.failed', { orders, error: err });
+
+      const failPayload = { orders, orderNumbersStr, error: err };
+      this.emit('batch.failed', failPayload);
+      this.queueManager.emit('batch.failed', failPayload);
     }
   }
 

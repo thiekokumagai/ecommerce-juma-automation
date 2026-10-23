@@ -25,7 +25,9 @@
       "**/*",
       ".env",
       "icon.png",
-      "icon.ico"
+      "icon.ico",
+      "som.mp3",
+      "som.wav"
     ],
     "win": {
       "target": "nsis",
