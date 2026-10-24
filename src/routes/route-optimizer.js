@@ -8,6 +8,47 @@ class RouteOptimizer {
     this.routesClient = routesClient;
     this.originAddress = options.originAddress || config.queue.storeOriginAddress;
     this.maxDetourMinutes = options.maxDetourMinutes || config.queue.maxDetourMinutes;
+    this.maxBearingDiffDegrees = options.maxBearingDiffDegrees !== undefined 
+      ? options.maxBearingDiffDegrees 
+      : config.routes.maxBearingDiffDegrees;
+    this.originCoords = null;
+  }
+
+  // Calcula o azimute/rumo em graus (0° a 360°) do ponto A para o ponto B
+  calculateBearing(from, to) {
+    const lat1 = (from.lat * Math.PI) / 180;
+    const lat2 = (to.lat * Math.PI) / 180;
+    const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    const brng = (Math.atan2(y, x) * 180) / Math.PI;
+    return (brng + 360) % 360;
+  }
+
+  // Diferença angular mínima entre dois rumos (0° a 180°)
+  bearingDifference(b1, b2) {
+    const diff = Math.abs(b1 - b2) % 360;
+    return diff > 180 ? 360 - diff : diff;
+  }
+
+  async getOrderCoords(order) {
+    if (order.latitude && order.longitude) {
+      return { lat: parseFloat(order.latitude), lng: parseFloat(order.longitude) };
+    }
+    const address = this.formatOrderAddress(order);
+    if (typeof this.routesClient.geocodeAddress === 'function') {
+      return await this.routesClient.geocodeAddress(address);
+    }
+    return null;
+  }
+
+  async getOriginCoords() {
+    if (this.originCoords) return this.originCoords;
+    if (typeof this.routesClient.geocodeAddress === 'function') {
+      this.originCoords = await this.routesClient.geocodeAddress(this.originAddress);
+    }
+    return this.originCoords;
   }
 
   formatOrderAddress(order) {
@@ -71,6 +112,36 @@ class RouteOptimizer {
   }
 
   async evaluateGroupingAdvantage(currentGroup, candidate) {
+    // 1. Verificação de Alinhamento Direcional / Rumo Reto
+    if (this.maxBearingDiffDegrees && this.maxBearingDiffDegrees < 180) {
+      try {
+        const originCoords = await this.getOriginCoords();
+        const candidateCoords = await this.getOrderCoords(candidate);
+
+        if (originCoords && candidateCoords) {
+          const candidateBearing = this.calculateBearing(originCoords, candidateCoords);
+
+          for (const member of currentGroup) {
+            const memberCoords = await this.getOrderCoords(member);
+            if (memberCoords) {
+              const memberBearing = this.calculateBearing(originCoords, memberCoords);
+              const diff = this.bearingDifference(memberBearing, candidateBearing);
+
+              if (diff > this.maxBearingDiffDegrees) {
+                console.log(
+                  `[RouteOptimizer] 🚫 Pedido #${candidate.orderNumber || candidate.id} fora do rumo direto da rota (Diferença angular: ${Math.round(diff)}° > limite ${this.maxBearingDiffDegrees}°). Despachando separado.`
+                );
+                return false;
+              }
+            }
+          }
+        }
+      } catch (bearingErr) {
+        console.warn(`[RouteOptimizer] Alerta no cálculo direcional: ${bearingErr.message}`);
+      }
+    }
+
+    // 2. Verificação de Tempo e Desvio de Rota (MAX_DETOUR_MINUTES)
     const combined = [...currentGroup, candidate];
     const hasCardMachine = combined.some((o) => this.isCardOnDelivery(o));
 

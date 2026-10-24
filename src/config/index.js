@@ -56,6 +56,7 @@ module.exports = {
   // Google Routes API
   routes: {
     apiKey: process.env.GOOGLE_ROUTES_API_KEY || '',
+    maxBearingDiffDegrees: parseFloat(process.env.MAX_BEARING_DIFF_DEGREES || '45'),
   },
 
   // Banco de Dados PostgreSQL

@@ -76,6 +76,36 @@ class GoogleRoutesClient {
       optimizedOrder: destinations.map((_, i) => i),
     };
   }
+
+  async geocodeAddress(address) {
+    if (!address) return null;
+    if (!this.geocodeCache) {
+      this.geocodeCache = new Map();
+    }
+    const cleanAddress = address.trim();
+    if (this.geocodeCache.has(cleanAddress)) {
+      return this.geocodeCache.get(cleanAddress);
+    }
+
+    if (!this.apiKey) {
+      return null;
+    }
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanAddress)}&key=${this.apiKey}`;
+      const response = await axios.get(url, { timeout: 6000 });
+      if (response.data && response.data.status === 'OK' && response.data.results?.[0]?.geometry?.location) {
+        const loc = response.data.results[0].geometry.location;
+        const coords = { lat: loc.lat, lng: loc.lng };
+        this.geocodeCache.set(cleanAddress, coords);
+        return coords;
+      }
+    } catch (err) {
+      console.warn(`[GoogleRoutesClient] Falha ao geocodificar "${cleanAddress}": ${err.message}`);
+    }
+
+    return null;
+  }
 }
 
 module.exports = GoogleRoutesClient;
