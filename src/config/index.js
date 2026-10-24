@@ -1,13 +1,36 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
+function getSessionPath() {
+  if (process.env.JUMA_SESSION_PATH) {
+    return path.resolve(process.env.JUMA_SESSION_PATH);
+  }
+
+  // Tenta obter diretório userData do Electron se disponível
+  try {
+    const { app } = require('electron');
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), '.auth', 'juma-session.json');
+    }
+  } catch (e) {}
+
+  // Se executando dentro de pacote empacotado (.asar) ou como app instalado
+  const isPackaged = __dirname.includes('.asar') || process.resourcesPath;
+  if (isPackaged && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, 'juma-automation', '.auth', 'juma-session.json');
+  }
+
+  // Fallback padrão para ambiente de desenvolvimento local
+  return path.resolve(__dirname, '../../.auth/juma-session.json');
+}
+
 module.exports = {
   // Juma
   juma: {
     login: (process.env.JUMA_LOGIN || process.env.juma_login || '').trim(),
     password: (process.env.JUMA_PASSWORD || process.env.juma_senha || process.env.jsenha || '').trim(),
     headless: process.env.JUMA_HEADLESS === 'true',
-    sessionPath: path.resolve(__dirname, '../../.auth/juma-session.json'),
+    sessionPath: getSessionPath(),
     appUrl: process.env.JUMA_APP_URL || 'https://app.jumaentregas.com/solicitacao/gestaoPedido',
   },
 

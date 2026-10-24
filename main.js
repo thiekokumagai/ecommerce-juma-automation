@@ -11,6 +11,22 @@ let statusText = 'Iniciando...';
 let lastRouteText = 'Nenhuma rota recente';
 let ordersWaitingCount = 0;
 
+// Garantir que a sessão do Juma fique na pasta de dados do usuário (%APPDATA%/juma-automation)
+if (app && typeof app.getPath === 'function') {
+  const userDataAuthDir = path.join(app.getPath('userData'), '.auth');
+  const userDataSessionFile = path.join(userDataAuthDir, 'juma-session.json');
+  process.env.JUMA_SESSION_PATH = userDataSessionFile;
+
+  // Se já existir sessão na pasta do projeto, copia para userData caso ainda não exista
+  try {
+    const localSessionFile = path.join(__dirname, '.auth', 'juma-session.json');
+    if (!fs.existsSync(userDataSessionFile) && fs.existsSync(localSessionFile)) {
+      if (!fs.existsSync(userDataAuthDir)) fs.mkdirSync(userDataAuthDir, { recursive: true });
+      fs.copyFileSync(localSessionFile, userDataSessionFile);
+    }
+  } catch (copyErr) {}
+}
+
 // Permitir reprodução de áudio sem exigir clique na janela
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 

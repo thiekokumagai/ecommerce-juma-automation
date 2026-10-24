@@ -106,10 +106,14 @@ class JumaService {
         page.locator('button[type="submit"], input[type="submit"]').first().click(),
       ]);
 
-      const authDir = path.dirname(this.sessionPath);
-      if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
-      await this.context.storageState({ path: this.sessionPath });
-      console.log('[JumaService] Sessão renovada com sucesso.');
+      try {
+        const authDir = path.dirname(this.sessionPath);
+        if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+        await this.context.storageState({ path: this.sessionPath });
+        console.log('[JumaService] Sessão renovada com sucesso em:', this.sessionPath);
+      } catch (saveErr) {
+        console.warn(`[JumaService] Aviso: Não foi possível persistir juma-session.json (${this.sessionPath}): ${saveErr.message}`);
+      }
     }
   }
 
