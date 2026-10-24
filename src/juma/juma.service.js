@@ -115,6 +115,12 @@ class JumaService {
         console.warn(`[JumaService] Aviso: Não foi possível persistir juma-session.json (${this.sessionPath}): ${saveErr.message}`);
       }
     }
+
+    // Se após autenticar estiver na raiz ou outra URL, redireciona para a tela de gestão de pedidos
+    if (!page.url().includes('/gestaoPedido')) {
+      console.log('[JumaService] Redirecionando para página de gestão de pedidos:', this.appUrl);
+      await page.goto(this.appUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    }
   }
 
   isPhysicalPayment(order) {
@@ -229,18 +235,23 @@ class JumaService {
     const orderRef = order.orderNumber ? String(order.orderNumber) : String(order.id);
     console.log(`[JumaService] Preenchendo parada ${isFirstStop ? 'inicial' : 'adicional'} para pedido #${orderRef}...`);
 
+    const phoneInput = page.locator('#Pedido_telefone_passageiro');
+
     if (isFirstStop) {
-      const btnNovo = page.locator('#info-parada_btn');
-      await btnNovo.waitFor({ state: 'visible', timeout: 15000 });
-      await btnNovo.click();
+      // Se o formulário de parada já estiver visível/aberto, não precisa clicar no botão
+      const isAlreadyOpen = await phoneInput.isVisible().catch(() => false);
+      if (!isAlreadyOpen) {
+        const btnNovo = page.locator('#info-parada_btn, a#info-parada_btn, button:has-text("Nova Parada")').first();
+        await btnNovo.waitFor({ state: 'visible', timeout: 15000 });
+        await btnNovo.click();
+      }
     } else {
       const btnAddParada = page.locator('#botao_adicionar_parada').first();
       await btnAddParada.waitFor({ state: 'visible', timeout: 15000 });
       await btnAddParada.click();
     }
 
-    const phoneInput = page.locator('#Pedido_telefone_passageiro');
-    await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
+    await phoneInput.waitFor({ state: 'visible', timeout: 15000 });
 
     // 1. Telefone do cliente
     const cleanPhone = this.sanitizePhone(order.customerPhone);
