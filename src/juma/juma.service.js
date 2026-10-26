@@ -418,19 +418,61 @@ class JumaService {
         }
       }
 
-      // 3. Se for rota (múltiplas entregas ou retorno), sempre acionar o botão "Otimizar" (#btn-otimizar)
-      const btnOtimizar = page.locator('#btn-otimizar, button:has-text("Otimizar")').first();
+      // 3. Se for rota (múltiplas entregas ou retorno), aguardar cálculo e acionar o botão "Otimizar" (#btn-otimizar)
       try {
-        if (await btnOtimizar.isVisible().catch(() => false)) {
-          console.log('[JumaService] 🔄 Rota detectada! Acionando botão "Otimizar" (#btn-otimizar) para calcular o melhor trajeto...');
-          await btnOtimizar.click();
-          await page.waitForTimeout(2000);
-          console.log('[JumaService] ✅ Botão "Otimizar" acionado com sucesso.');
+        console.log('[JumaService] 🔄 Verificando botão "Otimizar" (#btn-otimizar) para cálculo de rota...');
+        
+        // Aguarda eventuais requisições de estimativas ou bloqueios da tela finalizarem
+        await page.waitForTimeout(2000);
+        
+        // Espera o botão de otimizar estar presente no DOM
+        const btnOtimizar = page.locator('#btn-otimizar');
+        const count = await btnOtimizar.count();
+
+        if (count > 0) {
+          // Aguarda o botão habilitar (não ter classe .disabled) ou até 10 segundos
+          await page.waitForFunction(() => {
+            const btn = document.querySelector('#btn-otimizar');
+            return btn && !btn.classList.contains('disabled');
+          }, { timeout: 10000 }).catch(() => {});
+
+          const isDisabled = await page.evaluate(() => {
+            const btn = document.querySelector('#btn-otimizar');
+            return !btn || btn.classList.contains('disabled');
+          });
+
+          if (!isDisabled) {
+            console.log('[JumaService] 🔄 Acionando botão "Otimizar" (#btn-otimizar) para calcular melhor trajeto...');
+            
+            // Dispara o clique e aguarda a resposta do recálculo de rota otimizada
+            const [response] = await Promise.all([
+              page.waitForResponse(
+                (res) => res.url().includes('calculaEstimativasCorridaViaSite') && res.status() === 200,
+                { timeout: 12000 }
+              ).catch(() => null),
+              // Clica via evaluate caso haja overlay ou clique via Playwright
+              page.evaluate(() => {
+                const btn = document.querySelector('#btn-otimizar');
+                if (btn) btn.click();
+              }),
+            ]);
+
+            if (response) {
+              console.log('[JumaService] ✅ Rota otimizada recalculada com sucesso via servidor do Juma.');
+            } else {
+              console.log('[JumaService] ⚠️ Resposta AJAX de otimização não capturada ou rota já ideal, aguardando 2s...');
+            }
+
+            // Aguarda 2 segundos para o DOM e lista reordenar
+            await page.waitForTimeout(2000);
+          } else {
+            console.log('[JumaService] Botão "Otimizar" está desabilitado (.disabled). A rota atual já é o trajeto ideal.');
+          }
         } else {
-          console.log('[JumaService] Botão "Otimizar" não visível (corrida de parada única ou já otimizada).');
+          console.log('[JumaService] Botão "Otimizar" não encontrado na tela.');
         }
       } catch (otimizarErr) {
-        console.warn(`[JumaService] Alerta ao clicar no botão Otimizar: ${otimizarErr.message}`);
+        console.warn(`[JumaService] Alerta ao processar botão Otimizar: ${otimizarErr.message}`);
       }
 
       if (this.dryRun) {
