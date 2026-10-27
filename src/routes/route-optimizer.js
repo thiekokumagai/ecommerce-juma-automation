@@ -165,6 +165,28 @@ class RouteOptimizer {
             }
           }
 
+          // Verificação de Custo de Retorno:
+          // Se um pedido precisa de retorno (cartão/dinheiro na entrega) e o outro é PIX/online
+          // mas fica distante (estimativa superior a maxDetourMinutes ou distância relevante em km),
+          // separar as rotas para não pagar o retorno caro da distância mais longa.
+          const memberRequiresReturn = currentGroup.some((m) => this.isCardOnDelivery(m));
+          const candidateRequiresReturn = this.isCardOnDelivery(candidate);
+
+          if ((memberRequiresReturn && !candidateRequiresReturn) || (!memberRequiresReturn && candidateRequiresReturn)) {
+            const candidateDistKm = this.calculateDistanceKm(originCoords, candidateCoords);
+            // Estima tempo urbano aproximado (média de 30 km/h -> 2 min/km ou cálculo direto)
+            const estimatedMinutesFromStore = Math.round(candidateDistKm * 2);
+
+            const isFar = estimatedMinutesFromStore >= this.maxDetourMinutes || candidateDistKm >= 6.0;
+
+            if (isFar) {
+              console.log(
+                `[RouteOptimizer] 💰 Pedido #${candidate.orderNumber || candidate.id} é ${candidateRequiresReturn ? 'Cartão' : 'PIX'} e está distante (~${candidateDistKm.toFixed(1)} km, ~${estimatedMinutesFromStore} min da loja). Separando rota para evitar taxa de retorno cara com pedido de ${memberRequiresReturn ? 'Cartão' : 'PIX'}.`
+              );
+              return false;
+            }
+          }
+
           console.log(
             `[RouteOptimizer] ✅ Pedido #${candidate.orderNumber || candidate.id} no mesmo rumo da rota (Diferença angular dentro do limite de ${this.maxBearingDiffDegrees}°). Agrupando!`
           );
