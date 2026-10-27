@@ -80,6 +80,21 @@ class RouteOptimizer {
     return isCard && type !== 'online';
   }
 
+  // Calcula a distância euclidiana/reta em km aproximada entre dois pontos (fórmula de Haversine)
+  calculateDistanceKm(from, to) {
+    const R = 6371; // Raio da Terra em km
+    const dLat = ((to.lat - from.lat) * Math.PI) / 180;
+    const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((from.lat * Math.PI) / 180) *
+        Math.cos((to.lat * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
   async groupOrders(orders, options = {}) {
     if (!orders || orders.length === 0) return [];
     if (orders.length === 1) return [[orders[0]]];
@@ -105,14 +120,28 @@ class RouteOptimizer {
         }
       }
 
-      groups.push(currentGroup);
+      // Ordena as paradas do grupo pela distância da loja (mais perto primeiro, mais longe por último)
+      const originCoords = await this.getOriginCoords();
+      if (originCoords && currentGroup.length > 1) {
+        const ordersWithDistance = await Promise.all(
+          currentGroup.map(async (order) => {
+            const coords = await this.getOrderCoords(order);
+            const dist = coords ? this.calculateDistanceKm(originCoords, coords) : 999;
+            return { order, dist };
+          })
+        );
+        ordersWithDistance.sort((a, b) => a.dist - b.dist);
+        groups.push(ordersWithDistance.map((item) => item.order));
+      } else {
+        groups.push(currentGroup);
+      }
     }
 
     return groups;
   }
 
   async evaluateGroupingAdvantage(currentGroup, candidate) {
-    // 1. Verificação de Alinhamento Direcional / Rumo Reto
+    // Verificação de Alinhamento Direcional / Rumo Reto a partir da Loja
     if (this.maxBearingDiffDegrees && this.maxBearingDiffDegrees < 180) {
       try {
         const originCoords = await this.getOriginCoords();
@@ -129,50 +158,27 @@ class RouteOptimizer {
 
               if (diff > this.maxBearingDiffDegrees) {
                 console.log(
-                  `[RouteOptimizer] 🚫 Pedido #${candidate.orderNumber || candidate.id} fora do rumo direto da rota (Diferença angular: ${Math.round(diff)}° > limite ${this.maxBearingDiffDegrees}°). Despachando separado.`
+                  `[RouteOptimizer] 🚫 Pedido #${candidate.orderNumber || candidate.id} fora do rumo direto da rota (Diferença: ${Math.round(diff)}° > limite ${this.maxBearingDiffDegrees}°). Despachando separado.`
                 );
                 return false;
               }
             }
           }
+
+          console.log(
+            `[RouteOptimizer] ✅ Pedido #${candidate.orderNumber || candidate.id} no mesmo rumo da rota (Diferença angular dentro do limite de ${this.maxBearingDiffDegrees}°). Agrupando!`
+          );
+          return true;
         }
       } catch (bearingErr) {
         console.warn(`[RouteOptimizer] Alerta no cálculo direcional: ${bearingErr.message}`);
       }
     }
 
-    // 2. Verificação de Tempo e Desvio de Rota (MAX_DETOUR_MINUTES)
-    const combined = [...currentGroup, candidate];
-    const hasCardMachine = combined.some((o) => this.isCardOnDelivery(o));
-
-    const combinedAddresses = combined.map((o) => this.formatOrderAddress(o));
-    const combinedRoute = await this.routesClient.computeRoute(this.originAddress, combinedAddresses, {
-      requiresReturnToOrigin: hasCardMachine,
-    });
-
-    // Calcular tempos individuais estimados
-    let sumIndividualMinutes = 0;
-    for (const order of combined) {
-      const addr = this.formatOrderAddress(order);
-      const isCard = this.isCardOnDelivery(order);
-      const indRoute = await this.routesClient.computeRoute(this.originAddress, [addr], {
-        requiresReturnToOrigin: isCard,
-      });
-      sumIndividualMinutes += indRoute.durationMinutes;
-    }
-
-    // Vantagem operacional: a rota combinada economiza tempo global comparada com as idas e voltas individuais
-    const detour = combinedRoute.durationMinutes - sumIndividualMinutes;
-
-    // Se a rota combinada for mais rápida que viagens individuais somadas OU estiver dentro do desvio aceitável
-    const isAdvantageous = combinedRoute.durationMinutes <= sumIndividualMinutes || detour <= this.maxDetourMinutes;
-
-    console.log(
-      `[RouteOptimizer] Avaliando agrupamento (${combined.length} pedidos): Rota Combinada = ${combinedRoute.durationMinutes}min | Soma Individual = ${sumIndividualMinutes}min | Maquininha Retorno: ${hasCardMachine} => Vantajosa: ${isAdvantageous}`
-    );
-
-    return isAdvantageous;
+    // Se não foi possível calcular as coordenadas, mantém como rota separada por segurança
+    return false;
   }
 }
 
 module.exports = RouteOptimizer;
+

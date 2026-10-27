@@ -74,18 +74,18 @@ describe('Suíte de Testes Automatizados - 14 Cenários do ecommerce-juma-automa
     expect(obs).toBe('Troco para R$ 100,00');
   });
 
-  // 4. Agrupamento de pedidos próximos
+  // 4. Agrupamento de pedidos próximos no mesmo rumo
   test('4. Agrupamento de pedidos próximos forma rota combinada vantajosa', async () => {
     const mockRoutes = {
-      computeRoute: jest.fn().mockImplementation((origin, destinations) => {
-        if (destinations.length > 1) {
-          return Promise.resolve({ durationMinutes: 25, distanceKm: 8 });
-        }
-        return Promise.resolve({ durationMinutes: 18, distanceKm: 5 });
+      geocodeAddress: jest.fn().mockImplementation((addr) => {
+        if (addr.includes('Rua A')) return Promise.resolve({ lat: -20.450, lng: -54.600 });
+        if (addr.includes('Rua B')) return Promise.resolve({ lat: -20.440, lng: -54.595 });
+        return Promise.resolve({ lat: -20.490, lng: -54.610 }); // Origem
       }),
+      computeRoute: jest.fn().mockResolvedValue({ durationMinutes: 25, distanceKm: 8 }),
     };
 
-    const optimizer = new RouteOptimizer(mockRoutes, { maxDetourMinutes: 15 });
+    const optimizer = new RouteOptimizer(mockRoutes, { maxBearingDiffDegrees: 45 });
     const order1 = { id: 'o1', street: 'Rua A', number: '10', neighborhood: 'Centro', city: 'CG' };
     const order2 = { id: 'o2', street: 'Rua B', number: '20', neighborhood: 'Centro', city: 'CG' };
 
@@ -94,18 +94,18 @@ describe('Suíte de Testes Automatizados - 14 Cenários do ecommerce-juma-automa
     expect(groups[0].length).toBe(2);
   });
 
-  // 5. Pedidos sem rota vantajosa
-  test('5. Pedidos distantes sem rota vantajosa devem ser separados em grupos individuais', async () => {
+  // 5. Pedidos em sentidos opostos (rumo diferente)
+  test('5. Pedidos em sentidos opostos devem ser separados em grupos individuais', async () => {
     const mockRoutes = {
-      computeRoute: jest.fn().mockImplementation((origin, destinations) => {
-        if (destinations.length > 1) {
-          return Promise.resolve({ durationMinutes: 65, distanceKm: 30 });
-        }
-        return Promise.resolve({ durationMinutes: 20, distanceKm: 8 });
+      geocodeAddress: jest.fn().mockImplementation((addr) => {
+        if (addr.includes('Rua Norte')) return Promise.resolve({ lat: -20.419, lng: -54.559 }); // Norte
+        if (addr.includes('Rua Sul')) return Promise.resolve({ lat: -20.525, lng: -54.640 }); // Sul
+        return Promise.resolve({ lat: -20.496, lng: -54.607 }); // Origem
       }),
+      computeRoute: jest.fn().mockResolvedValue({ durationMinutes: 65, distanceKm: 30 }),
     };
 
-    const optimizer = new RouteOptimizer(mockRoutes, { maxDetourMinutes: 10 });
+    const optimizer = new RouteOptimizer(mockRoutes, { maxBearingDiffDegrees: 45 });
     const order1 = { id: 'o1', street: 'Rua Norte', number: '10', neighborhood: 'Norte', city: 'CG' };
     const order2 = { id: 'o2', street: 'Rua Sul', number: '20', neighborhood: 'Sul', city: 'CG' };
 
