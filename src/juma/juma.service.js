@@ -135,6 +135,14 @@ class JumaService {
   isPhysicalPayment(order) {
     if (!order) return false;
     const method = (order.paymentMethod || '').toLowerCase();
+    const type = (order.paymentType || '').toLowerCase();
+    const paymentStatus = (order.paymentStatus || '').toLowerCase();
+
+    // Pagamentos já confirmados ou feitos online não geram retorno do motoboy.
+    // Isso inclui cartão online, que não deve ser confundido com cartão na entrega.
+    if (paymentStatus === 'paid' || type === 'online') {
+      return false;
+    }
 
     // Se for PIX, já está pago online
     if (method.includes('pix')) {

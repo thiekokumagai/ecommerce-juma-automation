@@ -59,8 +59,9 @@ class RouteOptimizer {
     if (!order) return false;
     const method = (order.paymentMethod || '').toLowerCase();
     const type = (order.paymentType || '').toLowerCase();
+    const paymentStatus = (order.paymentStatus || '').toLowerCase();
 
-    if (method.includes('pix') || method.includes('dinheiro') || method.includes('cash')) {
+    if (paymentStatus === 'paid' || type === 'online' || method.includes('pix') || method.includes('dinheiro') || method.includes('cash')) {
       return false;
     }
 
