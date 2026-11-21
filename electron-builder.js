@@ -18,6 +18,7 @@ module.exports = {
       provider: 'github',
       owner: 'thiekokumagai',
       repo: 'ecommerce-juma-automation',
+      releaseType: 'release',
     },
   ],
   win: {
