@@ -27,23 +27,88 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Instalar dependências
-        shell: bash
+        shell: pwsh
         run: npm ci
 
       - name: Subir versão patch e publicar tag
+        id: version
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          npm version patch -m "chore(release): v%s [skip ci]"
+          TAG=$(npm version patch -m "chore(release): v%s [skip ci]")
           git push origin HEAD:main --follow-tags
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Gerar e publicar instalador Windows
-        shell: bash
+      - name: Gerar .env para o build
+        shell: pwsh
+        env:
+          DATABASE_URL: ${{ vars.DATABASE_URL || secrets.DATABASE_URL }}
+          GOOGLE_ROUTES_API_KEY: ${{ vars.GOOGLE_ROUTES_API_KEY || secrets.GOOGLE_ROUTES_API_KEY }}
+          GROUP_BY_BEARING_ONLY: ${{ vars.GROUP_BY_BEARING_ONLY || secrets.GROUP_BY_BEARING_ONLY }}
+          JUMA_HEADLESS: ${{ vars.JUMA_HEADLESS || secrets.JUMA_HEADLESS }}
+          JUMA_LOGIN: ${{ vars.JUMA_LOGIN || secrets.JUMA_LOGIN }}
+          JUMA_PASSWORD: ${{ vars.JUMA_PASSWORD || secrets.JUMA_PASSWORD }}
+          MAX_BEARING_DIFF_DEGREES: ${{ vars.MAX_BEARING_DIFF_DEGREES || secrets.MAX_BEARING_DIFF_DEGREES }}
+          MAX_DETOUR_MINUTES: ${{ vars.MAX_DETOUR_MINUTES || secrets.MAX_DETOUR_MINUTES }}
+          PODEMAIS_API_EMAIL: ${{ vars.PODEMAIS_API_EMAIL || secrets.PODEMAIS_API_EMAIL }}
+          PODEMAIS_API_PASSWORD: ${{ vars.PODEMAIS_API_PASSWORD || secrets.PODEMAIS_API_PASSWORD }}
+          PODEMAIS_API_URL: ${{ vars.PODEMAIS_API_URL || secrets.PODEMAIS_API_URL }}
+          PODEMAIS_SOCKET_URL: ${{ vars.PODEMAIS_SOCKET_URL || secrets.PODEMAIS_SOCKET_URL }}
+          QUEUE_GROUPING_WINDOW_MINUTES: ${{ vars.QUEUE_GROUPING_WINDOW_MINUTES || secrets.QUEUE_GROUPING_WINDOW_MINUTES }}
+          QUEUE_MAX_ORDERS_PER_ROUTE: ${{ vars.QUEUE_MAX_ORDERS_PER_ROUTE || secrets.QUEUE_MAX_ORDERS_PER_ROUTE }}
+          STORE_ORIGIN_ADDRESS: ${{ vars.STORE_ORIGIN_ADDRESS || secrets.STORE_ORIGIN_ADDRESS }}
+        run: |
+          $keys = @(
+            'JUMA_LOGIN',
+            'JUMA_PASSWORD',
+            'JUMA_HEADLESS',
+            'PODEMAIS_API_URL',
+            'PODEMAIS_SOCKET_URL',
+            'PODEMAIS_API_EMAIL',
+            'PODEMAIS_API_PASSWORD',
+            'QUEUE_GROUPING_WINDOW_MINUTES',
+            'QUEUE_MAX_ORDERS_PER_ROUTE',
+            'MAX_DETOUR_MINUTES',
+            'STORE_ORIGIN_ADDRESS',
+            'GOOGLE_ROUTES_API_KEY',
+            'MAX_BEARING_DIFF_DEGREES',
+            'DATABASE_URL',
+            'GROUP_BY_BEARING_ONLY'
+          )
+          $lines = @()
+          foreach ($k in $keys) {
+            $val = [Environment]::GetEnvironmentVariable($k)
+            if (-not [string]::IsNullOrEmpty($val)) {
+              $lines += "$k=$val"
+            }
+          }
+          if ($lines.Count -gt 0) {
+            Set-Content -Path ".env" -Value ($lines -join "`n") -NoNewline -Encoding UTF8
+          }
+
+      - name: Gerar instalador Windows
+        shell: pwsh
+        run: |
+          node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js --win --publish never
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist/juma-automation-setup.exe") -or -not (Test-Path "dist/latest.yml")) {
+            Write-Error "Build não gerou dist/juma-automation-setup.exe ou dist/latest.yml"
+            exit 1
+          }
+
+      - name: Publicar release única no GitHub
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron-builder.js --win --publish always
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $files = @("dist/juma-automation-setup.exe", "dist/latest.yml")
+          if (Test-Path "dist/juma-automation-setup.exe.blockmap") {
+            $files += "dist/juma-automation-setup.exe.blockmap"
+          }
+          gh release create $tag @files --title $tag --generate-notes --latest

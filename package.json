@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "start:cli": "node index.js",
-    "build": "electron-builder --config electron-builder.js --win",
+    "build": "node ./node_modules/electron-builder/out/cli/cli.js --config electron-builder.js --win",
     "start:silent": "wscript iniciar_silencioso.vbs",
     "startup:install": "instalar_inicializacao_windows.bat",
     "startup:remove": "remover_inicializacao_windows.bat",
