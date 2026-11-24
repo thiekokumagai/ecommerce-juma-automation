@@ -1,12 +1,10 @@
-const { app, Tray, Menu, nativeImage, Notification, shell, BrowserWindow, dialog } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, shell, BrowserWindow } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const AutomationOrchestrator = require('./src/orchestrator');
-
-let isManualUpdateCheck = false;
-let isCheckingForUpdates = false;
+const { createAutoUpdate } = require('./auto-update');
 
 let tray = null;
 let orchestrator = null;
@@ -321,113 +319,17 @@ async function startAutomation() {
 
 const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 horas
 
-function setupAutoUpdater() {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on('checking-for-update', () => {
-    isCheckingForUpdates = true;
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    console.log('[AutoUpdater] Nova versão disponível:', info && info.version);
-    if (isManualUpdateCheck) {
-      isManualUpdateCheck = false;
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Atualização disponível',
-        message: `Nova versão (v${info.version}) encontrada.`,
-        detail: 'O download foi iniciado em segundo plano. Avisaremos quando estiver pronta para instalar.',
-        buttons: ['OK'],
-      });
-    }
-  });
-
-  autoUpdater.on('update-not-available', () => {
-    isCheckingForUpdates = false;
-    if (isManualUpdateCheck) {
-      isManualUpdateCheck = false;
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Sem atualizações',
-        message: `Você já está na versão mais recente (v${app.getVersion()}).`,
-        buttons: ['OK'],
-      });
-    }
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    isCheckingForUpdates = false;
-    isManualUpdateCheck = false;
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Atualização pronta',
-        message: `A versão v${info.version} foi baixada.`,
-        detail: 'Deseja reiniciar a Juma Automação agora para instalar a atualização? Se preferir, ela será instalada ao fechar o programa.',
-        buttons: ['Reiniciar e atualizar', 'Depois'],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      .then(async ({ response }) => {
-        if (response === 0) {
-          if (orchestrator) {
-            await orchestrator.stop().catch(() => {});
-          }
-          app.isQuiting = true;
-          autoUpdater.quitAndInstall();
-        }
-      })
-      .catch((err) => {
-        console.error('[AutoUpdater] Erro ao exibir diálogo de atualização:', err);
-      });
-  });
-
-  autoUpdater.on('error', (err) => {
-    isCheckingForUpdates = false;
-    console.error('[AutoUpdater] Erro ao verificar atualizações:', err && err.message ? err.message : err);
-    if (isManualUpdateCheck) {
-      isManualUpdateCheck = false;
-      dialog.showMessageBox({
-        type: 'warning',
-        title: 'Erro ao verificar atualizações',
-        message: 'Não foi possível verificar atualizações agora.',
-        detail: 'Verifique sua conexão com a internet e tente novamente mais tarde.',
-        buttons: ['OK'],
-      });
-    }
-  });
+function notifyTray(title, content) {
+  console.log(`[update] ${title}: ${content}`);
+  if (tray && process.platform === 'win32') {
+    tray.displayBalloon({ title, content, iconType: 'info', noSound: true });
+  }
 }
 
+let autoUpdate = null;
+
 function checkForUpdates(manual = false) {
-  if (!app.isPackaged) {
-    if (manual) {
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Modo desenvolvimento',
-        message: 'A verificação de atualizações só funciona na versão instalada (.exe).',
-        buttons: ['OK'],
-      });
-    }
-    return;
-  }
-
-  if (isCheckingForUpdates) return;
-  isManualUpdateCheck = manual;
-
-  autoUpdater.checkForUpdates().catch((err) => {
-    isCheckingForUpdates = false;
-    console.error('[AutoUpdater] Falha na checagem de atualizações:', err && err.message ? err.message : err);
-    if (isManualUpdateCheck) {
-      isManualUpdateCheck = false;
-      dialog.showMessageBox({
-        type: 'warning',
-        title: 'Erro ao verificar atualizações',
-        message: 'Não foi possível verificar atualizações agora.',
-        buttons: ['OK'],
-      });
-    }
-  });
+  if (autoUpdate) autoUpdate.check(manual);
 }
 
 app.whenReady().then(async () => {
@@ -442,7 +344,17 @@ app.whenReady().then(async () => {
 
   await startAutomation();
 
-  setupAutoUpdater();
+  autoUpdate = createAutoUpdate({
+    autoUpdater,
+    app,
+    // Só reinicia sem lote em cadastro no Juma e sem a fila travando pedidos
+    isBusy: () => Boolean(orchestrator && orchestrator.isBusy()),
+    // Para a automação antes de instalar (antes era feito depois do clique em "Reiniciar e atualizar")
+    beforeInstall: async () => {
+      if (orchestrator) await orchestrator.stop().catch(() => {});
+    },
+    notify: notifyTray,
+  });
   setTimeout(() => checkForUpdates(false), 10000);
   setInterval(() => checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
 });

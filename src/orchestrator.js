@@ -20,6 +20,12 @@ class AutomationOrchestrator extends EventEmitter {
 
     this.pollTimer = null;
     this.isRunning = false;
+    this.activeBatches = 0;
+  }
+
+  /** Ocupado = lote sendo cadastrado no Juma ou fila travando pedidos. O auto-update espera isso acabar. */
+  isBusy() {
+    return this.activeBatches > 0 || Boolean(this.queueManager && this.queueManager.isEvaluating);
   }
 
   async start() {
@@ -95,6 +101,15 @@ class AutomationOrchestrator extends EventEmitter {
   }
 
   async processBatch(orders) {
+    this.activeBatches += 1;
+    try {
+      return await this._processBatch(orders);
+    } finally {
+      this.activeBatches -= 1;
+    }
+  }
+
+  async _processBatch(orders) {
     if (!orders || orders.length === 0) return;
 
     const orderNumbersStr = orders.map(o => `#${o.orderNumber || o.id}`).join(', ');

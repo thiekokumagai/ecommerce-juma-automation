@@ -11,6 +11,7 @@ class QueueManager extends EventEmitter {
     this.checkIntervalMs = options.checkIntervalMs || 15000; // Avalia a cada 15 segundos
     this.timer = null;
     this.isRunning = false;
+    this.isEvaluating = false;
   }
 
   async start() {
@@ -31,11 +32,14 @@ class QueueManager extends EventEmitter {
   _scheduleNextCheck() {
     if (!this.isRunning) return;
     this.timer = setTimeout(async () => {
+      // Enquanto avalia, pode estar travando pedidos (PROCESSING): o auto-update não reinicia o app nesse meio
+      this.isEvaluating = true;
       try {
         await this.evaluateQueue();
       } catch (err) {
         console.error('[QueueManager] Erro ao avaliar fila:', err);
       } finally {
+        this.isEvaluating = false;
         this._scheduleNextCheck();
       }
     }, this.checkIntervalMs);
