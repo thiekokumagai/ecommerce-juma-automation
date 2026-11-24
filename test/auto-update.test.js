@@ -117,3 +117,14 @@ describe('orchestrator.isBusy (sinal usado pelo auto-update)', () => {
     expect(orchestrator.isBusy()).toBe(true);
   });
 });
+
+describe('intervalo de checagem', () => {
+  test('checa atualização a cada 20 minutos e também logo ao abrir o app', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+    const m = src.match(/const UPDATE_CHECK_INTERVAL_MS = ([^;]+);/);
+    expect(Boolean(m)).toBe(true);
+    expect(Function(`return (${m[1]})`)()).toBe(20 * 60 * 1000);
+    expect(src).toMatch(/setInterval\(\(\) => checkForUpdates\(false\), UPDATE_CHECK_INTERVAL_MS\)/);
+    expect(src).toMatch(/setTimeout\(\(\) => checkForUpdates\(false\), 10000\)/);
+  });
+});
